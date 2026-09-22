@@ -1,5 +1,6 @@
 package com.vhre.base.core.base.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Null;
 import lombok.Data;
@@ -34,10 +35,11 @@ public abstract class BaseDTO {
     )
     private LocalDateTime updatedAt;
 
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     @Schema(
             description = "Flag indicating if the resource has been soft-deleted.",
             example = "false",
             accessMode = Schema.AccessMode.READ_ONLY
     )
-    private boolean isDeleted;
+    private boolean deleted;
 }

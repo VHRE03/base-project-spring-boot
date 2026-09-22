@@ -43,5 +43,5 @@ public abstract class BaseEntity {
     private LocalDateTime updatedAt;
 
     @Column(name = "is_deleted", nullable = false)
-    private boolean isDeleted = false;
+    private boolean deleted = false;
 }

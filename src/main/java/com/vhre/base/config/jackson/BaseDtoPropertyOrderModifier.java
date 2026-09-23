@@ -8,8 +8,12 @@ import com.vhre.base.core.base.dto.BaseDTO;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
 public class BaseDtoPropertyOrderModifier extends BeanSerializerModifier {
+
     private static final List<String> AUDIT_FIELDS = List.of("createdAt", "updatedAt", "deleted");
 
     @Override
@@ -20,15 +24,20 @@ public class BaseDtoPropertyOrderModifier extends BeanSerializerModifier {
             return beanProperties;
         }
 
+        Map<String, Integer> originalOrder = new HashMap<>();
+        for (int i = 0; i < beanProperties.size(); i++) {
+            originalOrder.put(beanProperties.get(i).getName(), i);
+        }
+
         List<BeanPropertyWriter> sorted = new ArrayList<>(beanProperties);
         sorted.sort(Comparator
                 .comparingInt((BeanPropertyWriter p) -> {
                     String name = p.getName();
-                    if ("id".equals(name)) return 0; // Primero el ID
-                    if (AUDIT_FIELDS.contains(name)) return 2; // Al final auditoría
-                    return 1; // En medio los campos propios del DTO
+                    if ("id".equals(name)) return 0;
+                    if (AUDIT_FIELDS.contains(name)) return 2;
+                    return 1;
                 })
-                .thenComparing(beanProperties::indexOf)
+                .thenComparingInt(p -> originalOrder.getOrDefault(p.getName(), Integer.MAX_VALUE))
         );
         return sorted;
     }

@@ -9,9 +9,14 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class JacksonConfig {
+    public JacksonConfig() {
+        System.out.println(">>> CARGANDO JACKSON CONFIG DE LA LIBRERIA BASE <<<");
+    }
+
     @Bean
     @ConditionalOnMissingBean(name = "baseDtoOrderModule")
     public Module baseDtoOrderModule() {
+        System.out.println(">>> REGISTRANDO MODULO DE ORDENAMIENTO <<<");
         SimpleModule module = new SimpleModule();
         module.setSerializerModifier(new BaseDtoPropertyOrderModifier());
         return module;

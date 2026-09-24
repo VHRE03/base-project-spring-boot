@@ -30,26 +30,55 @@ La librería se publica automáticamente en **GitHub Packages** mediante
 
 ### 1. Crear un Personal Access Token (lectura)
 
-El registry Maven de GitHub **siempre requiere autenticación**, aunque el paquete sea público:
+El registry Maven de GitHub **siempre requiere autenticación**, aunque el paquete sea público.
+El token se crea una sola vez por usuario y sirve para todos los proyectos que consuman
+paquetes de GitHub Packages:
 
-1. GitHub → `Settings` → `Developer settings` → `Personal access tokens` → **Tokens (classic)**.
-2. Generar un token con el permiso **`read:packages`**.
-3. Guardar el token como contraseña (usuario = tu usuario de GitHub).
+1. Entra a GitHub → clic en tu foto de perfil → **`Settings`**.
+2. Al final del menú izquierdo: **`Developer settings`** → **`Personal access tokens`** → **`Tokens (classic)`**.
+3. **`Generate new token` → `Generate new token (classic)`**.
+4. Asígnale un nombre descriptivo (p. ej. `read-github-packages`) y una expiración adecuada.
+5. En **`Select scopes`** marca únicamente **`read:packages`**.
+6. Genera y **copia el token inmediatamente** (GitHub no lo vuelve a mostrar).
+
+> ⚠️ **Debe ser un token CLASSIC, no "fine-grained".** El registry Maven de GitHub Packages
+> solo acepta tokens *classic*: los *fine-grained* (`github_pat_...`) devuelven `401
+> Unauthorized` aunque tengan permisos equivalentes. Verifica el prefijo del token generado:
+> los classic empiezan con **`ghp_`**.
 
 ### 2. Configurar credenciales en Maven (`~/.m2/settings.xml`)
+
+**Este archivo no va dentro de ningún proyecto**: es la configuración de Maven a nivel de
+**máquina/usuario**, y la necesita el lado que **consume** la librería (las máquinas del
+equipo y el CI de los proyectos consumidores). El proyecto base **no** lo requiere — publica
+automáticamente con el `GITHUB_TOKEN` del runner de GitHub Actions.
+
+Crea o edita el archivo `~/.m2/settings.xml` (Linux/macOS) o `%USERPROFILE%\.m2\settings.xml` (Windows):
 
 ```xml
 <settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
     <servers>
         <server>
-            <!-- Debe coincidir con el <id> del <repository> del pom del consumidor -->
+            <!-- REGLA CRITICA: este <id> debe coincidir EXACTAMENTE con el <id> del
+                 <repository> declarado en el pom.xml del proyecto consumidor -->
             <id>github</id>
-            <username>USUARIO_GITHUB</username>
-            <password>TOKEN_PAT_CON_READ_PACKAGES</password>
+            <username>USUARIO_GITHUB</username>        <!-- tu usuario de GitHub -->
+            <password>ghp_XXXXXXXXXXXXXXXXXXXX</password> <!-- el PAT classic del paso 1 -->
         </server>
     </servers>
 </settings>
 ```
+
+Puntos clave de esta configuración:
+
+- **`<id>github</id>`**: Maven empareja las credenciales con el repositorio *por id*. Si el
+  `<id>` del `<server>` no coincide con el `<id>` del `<repository>` del pom, Maven hace la
+  petición de forma anónima y GitHub responde `401 Unauthorized`.
+- **`<username>`**: tu usuario de GitHub (con un PAT classic cualquier valor no vacío
+  funciona, pero usa el real).
+- **`<password>`**: el token completo, sin espacios ni saltos de línea.
+- Si usas **IntelliJ**, este archivo se toma por defecto (`Settings → Build Tools → Maven →
+  User settings file`); tras editarlo, recarga el proyecto Maven para que lo vuelva a leer.
 
 ### 3. Registrar el repositorio y la dependencia en el `pom.xml`
 
@@ -89,7 +118,7 @@ Si el consumidor también corre en GitHub Actions, no uses un PAT: pasa un secre
 con permiso `read:packages` y configúralo igual que en la publicación:
 
 ```yaml
-- uses: actions/setup-java@v4
+- uses: actions/setup-java@v5
   with:
     java-version: '21'
     distribution: 'temurin'
@@ -100,6 +129,47 @@ con permiso `read:packages` y configúralo igual que en la publicación:
   env:
     GH_PACKAGES_USER: ${{ secrets.GH_PACKAGES_USER }}
     GH_PACKAGES_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
+```
+
+## Solución de problemas
+
+### `401 Unauthorized` al resolver la dependencia
+
+Significa que la petición llegó a GitHub **sin credenciales válidas**. Causas en orden de
+frecuencia:
+
+1. **No existe `~/.m2/settings.xml`**, o el `<id>` del `<server>` no coincide con el `<id>`
+   del `<repository>` del pom → Maven pide el paquete de forma anónima.
+2. **El token es *fine-grained*** (`github_pat_...`) → no funcionan con Packages; usa uno
+   **classic** (`ghp_...`).
+3. **El token no tiene el scope `read:packages`**, o expiró / fue revocado.
+
+Puedes aislar el problema de Maven probando el token directamente con `curl` (es la misma
+URL que Maven intenta descargar):
+
+```bash
+curl -o /dev/null -s -w "%{http_code}\n" -u USUARIO:ghp_tu_token \
+  https://maven.pkg.github.com/VHRE03/base-project-spring-boot/com/vhre/base-project-spring-boot-starter/maven-metadata.xml
+```
+
+| Código | Significado |
+|---|---|
+| `200` | Token válido y paquete publicado — Maven ya debería funcionar |
+| `401` | Problema con el token (classic vs fine-grained, scope o expiración) |
+| `404` | Token válido pero el paquete no existe — verifica que el workflow de publicación terminó en verde |
+
+### El error persiste aunque el token ya es correcto
+
+Maven **cachea los fallos de descarga** en el repositorio local (verás el aviso
+`...failed to transfer... This failure was cached in the local repository and resolution
+will not be reattempted...`). Fuerza el reintento de dos formas:
+
+```bash
+# Opción A: compilar forzando la actualización de snapshots
+./mvnw -U clean compile
+
+# Opción B: eliminar el estado cacheado de la dependencia
+rm -rf ~/.m2/repository/com/vhre/base-project-spring-boot-starter/
 ```
 
 ## Versionado recomendado

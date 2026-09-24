@@ -1,16 +1,36 @@
 name: Publish to GitHub Packages
 
+# Publicación automática de la librería en GitHub Packages (Maven registry):
+#   - push a main        -> publica 0.0.1-SNAPSHOT (integración continua)
+#   - Release publicada  -> publica la versión estable derivada del tag (v1.2.3 -> 1.2.3)
+#
+# No requiere configuración de secretos: usa el GITHUB_TOKEN propio del repositorio
+# (necesita el permiso packages:write, declarado abajo).
+
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+  packages: write
+
+# Los deploys a un mismo repositorio de paquetes deben serializarse
+# (dos pushes simultáneos pisan la misma versión SNAPSHOT).
+concurrency:
+  group: publish-to-github-packages
+  cancel-in-progress: false
 
 jobs:
-  publish:
+  publish-snapshot:
+    name: Publish SNAPSHOT (push to main)
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -20,11 +40,46 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
+          cache: 'maven'
+          # Inyecta en el settings.xml del runner las credenciales del
+          # <distributionManagement><id>github</id> declarado en el pom.xml
           server-id: github
           server-username: GITHUB_ACTOR
           server-password: GITHUB_TOKEN
 
-      - name: Publish with Maven
-        run: mvn deploy -DskipTests
+      # deploy ejecuta el ciclo completo: compilar -> TESTEAR -> empaquetar -> publicar
+      - name: Build, test and publish SNAPSHOT
+        run: ./mvnw -B -ntp deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-release:
+    name: Publish RELEASE (${{ github.event.release.tag_name }})
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+
+      # El tag de la Release marca la versión: v1.2.3 -> 1.2.3
+      - name: Set release version from tag
+        run: >-
+          ./mvnw -B -ntp org.codehaus.mojo:versions-maven-plugin:2.16.2:set
+          -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false
+
+      - name: Build, test and publish RELEASE
+        run: ./mvnw -B -ntp deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
